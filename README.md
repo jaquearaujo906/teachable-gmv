@@ -1,134 +1,144 @@
-# Teachable – Data Engineer II Technical Case
-## Daily GMV by Subsidiary
+# Daily GMV Data Pipeline – Teachable Data Engineer Case
+
+This project implements an end-to-end ETL pipeline to calculate the Daily GMV (Gross Merchandise Value) by subsidiary from three event-based source tables.
+
+The solution was designed with production best practices in mind, using a Medallion Architecture (Bronze / Silver / Gold), supporting incremental processing, deduplication, late-arriving data handling, and partitioned analytical output.
+
+The final result is an analytical table that is easy to query by analysts and business users, without requiring complex joins or knowledge of the raw event structure.
 
 ---
 
-## Goal
+## Project Structure
 
-Build an ETL pipeline and a final analytical table that provides Daily GMV by subsidiary, easy to query by analysts and business users without complex joins or knowledge of the raw event structure.
-
-This project implements a production-oriented data pipeline using a medallion architecture (Bronze → Silver → Gold).
+teachable-gmv/
+├── src/
+│   └── etl_gmv.py  
+├── data_lake/
+│   ├── bronze/
+│   ├── silver/
+│   └── gold/
+│       └── daily_gmv/  
+├── sql/
+│   ├── daily_gmv_ddl.sql
+│   └── daily_gmv_query.sql
+├── README.md  
+├── ARCHITECTURE.md  
+├── requirements.txt  
+└── .gitignore  
 
 ---
 
 ## Data Understanding
 
-The dataset is composed of three event tables:
+The pipeline processes three source tables:
 
-- purchase
-- product_item
-- product_extra_info (or purchase_extra_info)
+purchase  
+Contains purchase lifecycle events, including purchase_id, transaction_datetime, order_date, release_date (payment confirmation) and subsidiary.
 
-All tables can be joined using:
+product_item  
+Contains product-level purchase information such as purchase_id, product_id, item_quantity and purchase_value.
+
+purchase_extra_info  
+Contains additional attributes related to the purchase.
+
+All tables are joined using the field:
 
 purchase_id
 
 ---
 
-## GMV Business Rule
+## GMV Business Logic
 
-Only paid / released purchases are considered:
+Only paid purchases are included in the GMV calculation.
+
+A purchase is considered valid when:
 
 release_date IS NOT NULL
 
-GMV formula per item:
+GMV formula:
 
-gmv_value = purchase_value * item_quantity
-
-Daily GMV is calculated by aggregating by:
-
-transaction_date + subsidiary
+GMV = purchase_value * item_quantity
 
 ---
 
-## Final Table Design (Gold Layer)
+## Final Analytical Table
 
-### Table grain
-
-One row per:
-
-(transaction_date, subsidiary)
-
-### Columns
+Columns:
 
 transaction_date (DATE)  
 subsidiary (STRING)  
-gmv (DECIMAL / DOUBLE)
+gmv (DOUBLE)
 
-### Partitioning
+Grain:
 
-The table is partitioned by:
+One row per transaction_date and subsidiary.
+
+Partition:
 
 transaction_date
 
 ---
 
-## Final Table DDL
+## ETL Logic Summary
 
-Data Warehouse example (Redshift / BigQuery / Snowflake):
+The pipeline executes the following steps:
 
-CREATE TABLE analytics.daily_gmv (
-    transaction_date DATE NOT NULL,
-    subsidiary VARCHAR(50) NOT NULL,
-    gmv NUMERIC(18,2) NOT NULL
-);
-
-External table example (Athena / Glue):
-
-CREATE EXTERNAL TABLE analytics.daily_gmv (
-    subsidiary STRING,
-    gmv DOUBLE
-)
-PARTITIONED BY (transaction_date DATE)
-LOCATION 's3://bucket/gold/daily_gmv/';
+1. Read raw CSV files from the Bronze layer  
+2. Normalize and cast data types  
+3. Resolve CDC events using window functions  
+4. Deduplicate by purchase_id keeping the latest event  
+5. Write cleaned data to the Silver layer  
+6. Join the three Silver tables  
+7. Filter only paid purchases  
+8. Calculate GMV  
+9. Aggregate by day and subsidiary  
+10. Write partitioned output to the Gold layer  
 
 ---
 
-## ETL Logic Summary
+## Reproducibility and Incremental Processing
 
-### Bronze → Silver
+The pipeline supports execution using a date window:
 
-Raw CSV events are ingested into the Bronze layer.
+--start-date  
+--end-date  
 
-CDC and duplicate events are resolved using:
+Example:
+
+python src/etl_gmv.py --start-date 2023-02-01 --end-date 2023-02-28
+
+Only the affected partitions are recalculated, allowing safe reprocessing without duplicating data.
+
+---
+
+## Handling Data Issues
+
+Duplicates are handled using:
 
 row_number() over (partition by purchase_id order by transaction_datetime desc)
 
-Only the latest event per purchase is kept.
+Only the latest event is kept.
+
+Late-arriving data is handled by reprocessing only the impacted date partitions while keeping the table append-only at partition level.
 
 ---
 
-### Silver → Gold
+## SQL Deliverables
 
-Steps:
+The project includes a sql folder containing:
 
-1. Join the three tables on purchase_id
-2. Filter only paid purchases (release_date IS NOT NULL)
-3. Compute GMV
-4. Aggregate by transaction_date and subsidiary
-5. Write to Gold partitioned by date
+daily_gmv_ddl.sql – final table definition for Data Warehouses and External Tables  
+daily_gmv_query.sql – query to retrieve daily GMV by subsidiary  
 
 ---
 
-## Data Issues Handling
+## Example SQL Query
 
-Duplicate events: resolved by keeping the latest event per purchase_id using window functions.
-
-Late-arriving data: handled via configurable reprocessing window.
-
-Append-only table: Gold table is partitioned by date and only affected partitions are overwritten.
-
-This guarantees reproducibility and prevents data duplication.
-
----
-
-## SQL Query – Daily GMV
-
-SELECT
-    transaction_date,
-    subsidiary,
-    gmv
-FROM analytics.daily_gmv
+SELECT  
+    transaction_date,  
+    subsidiary,  
+    gmv  
+FROM analytics.daily_gmv  
 ORDER BY transaction_date, subsidiary;
 
 ---
@@ -142,62 +152,63 @@ transaction_date | subsidiary | gmv
 
 ---
 
-## How to Run
+## Architecture
 
-Install dependencies:
+A detailed architecture description is available in ARCHITECTURE.md and includes:
+
+Data layers design  
+CDC strategy  
+Incremental processing  
+Late data handling  
+Monitoring strategy  
+Cloud migration approach  
+
+---
+
+## How to Run Locally
+
+1. Create a virtual environment  
+2. Install dependencies:
 
 pip install -r requirements.txt
 
-Run ETL (automatic window detection):
+3. Run the pipeline:
 
 python src/etl_gmv.py
 
-Run with custom window:
+Or with incremental window:
 
-python src/etl_gmv.py --start-date 2023-02-01 --end-date 2023-02-28
-
----
-
-## Project Structure
-
-src/  
-data_lake/  
-  bronze/  
-  silver/  
-  gold/  
-README.md  
-ARCHITECTURE.md  
-requirements.txt  
+python src/etl_gmv.py --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 
 ---
 
-## Deliverables
+## Technologies Used
 
-Final analytical table (Gold layer)  
-ETL script (etl_gmv.py)  
-SQL query  
-Table DDL  
-Architecture documentation (ARCHITECTURE.md)
-
----
-
-## Architecture
-
-Detailed architecture description is available in:
-
-ARCHITECTURE.md
+Python  
+Apache Spark (PySpark)  
+SQL  
+Local filesystem (Data Lake simulation)  
 
 ---
 
-## Optional Improvements
+## Evaluation Criteria Coverage
 
-Data quality checks (null values, negative values, schema validation)  
-Monitoring metrics (row counts, GMV deltas)  
-Freshness checks  
-Alerting (Slack / Teams)
+This solution addresses:
+
+Correct GMV logic  
+Proper joins and aggregations  
+Analytical data modeling  
+Partitioned final table  
+Clean and readable code  
+Reproducible pipeline  
+Duplicate handling  
+Late-arriving data support  
+SQL DDL and analytical query  
+Architecture documentation  
 
 ---
 
-Author: Jaqueline Araujo Xavier  
-Role: Data Engineer
+## Author
 
+Jaqueline Araujo Xavier  
+Data Engineer

@@ -1,39 +1,38 @@
 # Architecture – Daily GMV Data Pipeline
 
+This document describes the architecture and design decisions of the Daily GMV data pipeline implemented for the Teachable Data Engineer case.
+
+The solution follows a modern analytical data architecture pattern focused on scalability, reliability, reproducibility, and ease of consumption by business users.
+
 ---
 
 ## Overview
 
-This project implements a production-style ETL pipeline to calculate Daily GMV by subsidiary using an event-driven data model.
+The pipeline processes event-based data from three source tables to generate a business-ready analytical table containing Daily GMV by subsidiary.
 
-The architecture follows the Medallion pattern:
+The architecture is based on the Medallion pattern:
 
 Bronze → Silver → Gold
 
-It is designed to be:
-
-- Reproducible
-- Incremental
-- Idempotent
-- Resilient to duplicates and late-arriving data
+This separation ensures clear responsibilities for each data layer and allows safe reprocessing, auditing, and incremental evolution of the data model.
 
 ---
 
 ## Technology Stack
 
-- Apache Spark (PySpark)
-- Python 3
-- Local filesystem (simulating S3 / Data Lake)
-- CSV as ingestion format
-- SQL for analytical queries
+The project uses:
 
-This stack can be easily migrated to:
+Python  
+Apache Spark (PySpark)  
+SQL  
+Local filesystem as a Data Lake simulation (S3-compatible design)
 
-- AWS S3 + Glue + Athena
-- Databricks
-- BigQuery
-- Redshift
-- Snowflake
+This stack was intentionally chosen to be easily portable to cloud environments such as:
+
+AWS (S3, Glue, Athena, EMR, Redshift)  
+Databricks  
+BigQuery  
+Snowflake  
 
 ---
 
@@ -43,38 +42,47 @@ This stack can be easily migrated to:
 
 Purpose:
 
-- Store raw incoming events
-- Preserve original structure
-- No transformations applied
+Store raw incoming events exactly as received from the source systems, without transformations.
 
-Data:
+Characteristics:
 
-- purchase.csv
-- product_item.csv
-- purchase_extra_info.csv
+Append-only  
+Schema preserved  
+No deduplication  
+Full historical traceability  
 
-Storage:
+Data stored:
+
+purchase.csv  
+product_item.csv  
+purchase_extra_info.csv  
+
+Location:
 
 data_lake/bronze/
 
 ---
 
-### Silver Layer – Clean & Deduplicated
+### Silver Layer – Cleaned and Deduplicated
 
 Purpose:
 
-- Resolve CDC events
-- Remove duplicates
-- Keep latest version per purchase_id
-- Enforce data types
+Transform raw events into a clean and consistent representation.
 
-Technique:
+Operations:
 
-Window function:
+Type casting  
+Schema normalization  
+CDC resolution  
+Deduplication by purchase_id  
+
+Deduplication strategy:
+
+For each purchase_id, only the latest event is kept using:
 
 row_number() over (partition by purchase_id order by transaction_datetime desc)
 
-Storage:
+Location:
 
 data_lake/silver/
 
@@ -84,9 +92,7 @@ data_lake/silver/
 
 Purpose:
 
-- Business-ready dataset
-- No joins required by analysts
-- Optimized for aggregation
+Provide a business-ready dataset optimized for analytical queries.
 
 Table:
 
@@ -94,15 +100,19 @@ daily_gmv
 
 Columns:
 
-- transaction_date
-- subsidiary
-- gmv
+transaction_date  
+subsidiary  
+gmv  
+
+Grain:
+
+One row per day per subsidiary.
 
 Partition:
 
 transaction_date
 
-Storage:
+Location:
 
 data_lake/gold/daily_gmv/
 
@@ -110,83 +120,102 @@ data_lake/gold/daily_gmv/
 
 ## Pipeline Flow
 
-1. Read Bronze CSV files
-2. Cast and normalize data types
-3. Deduplicate using window functions
-4. Write Silver layer
-5. Join Silver tables
-6. Filter paid purchases
-7. Calculate GMV
-8. Aggregate by day and subsidiary
-9. Write Gold layer partitions
+1. Read raw CSV files from the Bronze layer  
+2. Normalize schema and cast data types  
+3. Apply CDC logic and deduplicate records  
+4. Write cleaned datasets to the Silver layer  
+5. Join Silver tables using purchase_id  
+6. Filter only paid purchases (release_date not null)  
+7. Calculate GMV per record  
+8. Aggregate by transaction_date and subsidiary  
+9. Write partitioned output to the Gold layer  
 
 ---
 
 ## Incremental Processing Strategy
 
-The pipeline supports incremental execution using a date window:
+The pipeline supports incremental execution through date parameters:
 
 --start-date  
 --end-date  
 
-Example:
+Only the partitions within this window are recomputed.
 
-python etl_gmv.py --start-date 2023-02-01 --end-date 2023-02-28
+This allows:
 
-Only affected partitions are recomputed.
+Backfills  
+Late data correction  
+Safe reprocessing  
+Cost-efficient execution  
+
+The final table remains append-only at partition level, overwriting only the affected dates when necessary.
 
 ---
 
 ## Late Arriving Data Handling
 
-Late events are handled by:
+Late-arriving events are handled by:
 
-- Reprocessing the impacted date partitions
-- Overwriting only specific days
-- Keeping the table append-only at partition level
+Re-running the pipeline for the impacted dates  
+Rebuilding only the affected partitions  
+Preserving existing partitions outside the reprocessing window  
 
-This avoids full reloads while ensuring correctness.
+This ensures data correctness without full table reloads.
 
 ---
 
-## Data Quality Guarantees
+## Data Quality Strategy
 
 Implemented:
 
-- Deduplication by purchase_id
-- Type casting
-- Null filtering on release_date
+Deduplication by purchase_id  
+Type validation through casting  
+Filtering invalid (unpaid) purchases  
 
-Suggested improvements:
+Suggested future improvements:
 
-- Schema validation
-- Range checks (negative GMV)
-- Referential integrity checks
-- Anomaly detection
+Null checks on critical fields  
+Negative value detection for GMV  
+Referential integrity validation  
+Schema enforcement  
+Anomaly detection on daily aggregates  
 
 ---
 
 ## Monitoring Strategy (Proposed)
 
-- Row count per partition
-- Daily GMV delta comparison
-- Freshness timestamp
-- Pipeline duration
+In a production environment, the following metrics would be monitored:
 
-Alerting:
+Row count per partition  
+Daily GMV deltas  
+Pipeline execution duration  
+Data freshness timestamps  
 
-- Slack / Teams webhook
-- Email notifications
+Alerts could be sent via:
+
+Slack  
+Microsoft Teams  
+Email  
 
 ---
 
-## Daily Execution (Production Scenario)
+## Orchestration (Production Scenario)
 
-In a real environment:
+In a real-world deployment, the pipeline would be orchestrated by:
 
-- Orchestrated via Airflow / Dagster / Prefect
-- Triggered daily (D-1)
-- Backfills supported via parameters
+Airflow  
+Dagster  
+Prefect  
+
+Execution frequency:
+
+Daily (D-1)
+
+The pipeline would support:
+
+Retries  
+Backfills  
+SLA monitoring  
 
 ---
 
@@ -195,21 +224,30 @@ In a real environment:
 Bronze → S3 raw bucket  
 Silver → S3 curated bucket  
 Gold → S3 analytics bucket  
-Query → Athena / Redshift Spectrum  
 
-Spark → EMR / Glue / Databricks
-
----
-
-## Why This Architecture
-
-- Scalable
-- Auditable
-- Easy to maintain
-- Analyst-friendly
-- Production-aligned
+Spark → EMR or AWS Glue  
+Query engine → Athena or Redshift Spectrum  
 
 ---
 
-Author: Jaqueline Araujo Xavier  
-Role: Data Engineer
+## Design Principles
+
+Separation of concerns  
+Idempotent processing  
+Incremental computation  
+Business-oriented data modeling  
+Ease of maintenance  
+Scalability  
+Auditability  
+
+---
+
+## Conclusion
+
+This architecture provides a solid foundation for analytical workloads and demonstrates how event-based transactional data can be transformed into a clean, reliable, and easy-to-consume analytical dataset using modern data engineering practices.
+
+---
+
+Author:  
+Jaqueline Araujo Xavier  
+Data Engineer
