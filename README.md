@@ -153,6 +153,14 @@ transaction_date | subsidiary | gmv
 
 ---
 
+## Orquestração em Produção
+- Pipeline agendado diário via Airflow
+- Alerta se GMV cair >20% vs dia anterior
+- Reprocessamento automático em caso de falha
+
+---
+
+
 ## Architecture
 
 A detailed architecture description is available in ARCHITECTURE.md and includes:
