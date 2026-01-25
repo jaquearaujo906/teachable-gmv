@@ -34,7 +34,7 @@ Thumbs.db
 # Data Lake (generated data)
 # =====================
 data_lake/
-outputs/
+
 
 # =====================
 # Large files
