@@ -120,15 +120,54 @@ data_lake/gold/daily_gmv/
 
 ## Pipeline Flow
 
-1. Read raw CSV files from the Bronze layer  
-2. Normalize schema and cast data types  
-3. Apply CDC logic and deduplicate records  
-4. Write cleaned datasets to the Silver layer  
-5. Join Silver tables using purchase_id  
-6. Filter only paid purchases (release_date not null)  
-7. Calculate GMV per record  
-8. Aggregate by transaction_date and subsidiary  
-9. Write partitioned output to the Gold layer  
+```mermaid
+graph LR
+    subgraph "Source Systems (CDC Events)"
+        A[purchase]
+        B[product_item]
+        C[purchase_extra_info]
+    end
+
+    A --> D
+    B --> D
+    C --> D
+
+    subgraph "Bronze Layer (Raw)"
+        D[(Raw Events<br/>data_lake/bronze)]
+    end
+
+    D --> E[Clean & Deduplicate]
+
+    subgraph "Silver Layer (Cleaned)"
+        E --> F[(Cleaned Tables<br/>data_lake/silver)]
+    end
+
+    F --> G[Join & Filter<br/>GMV Calculation]
+
+    subgraph "Gold Layer (Analytical)"
+        G --> H[(Partitioned Table<br/>daily_gmv<br/>data_lake/gold)]
+    end
+
+    H --> I{Analysts & BI Tools}
+
+    subgraph "Orchestration & Scheduling"
+        J[Airflow DAG] --> K[Daily Job D-1]
+    end
+
+    K -.->|Triggers| D
+```
+
+---
+
+## Pipeline Flow Description
+
+1. CDC events are generated from the source systems  
+2. Raw events are stored in the Bronze layer  
+3. Data is cleaned, typed, and deduplicated in the Silver layer  
+4. Tables are joined and filtered for valid (paid) purchases  
+5. GMV is calculated and aggregated by day and subsidiary  
+6. Final analytical table is written to the Gold layer  
+7. Analysts and BI tools consume the partitioned dataset  
 
 ---
 
