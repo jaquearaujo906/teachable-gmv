@@ -10,22 +10,23 @@ The final result is an analytical table that is easy to query by analysts and bu
 
 ## Project Structure
 
+```
 teachable-gmv/
 ├── src/
-│ └── etl_gmv.py
+│   └── etl_gmv.py
 ├── data_lake/
-│ ├── bronze/
-│ ├── silver/
-│ └── gold/
-│ └── daily_gmv/
+│   ├── bronze/
+│   ├── silver/
+│   └── gold/
+│       └── daily_gmv/
 ├── sql/
-│ ├── daily_gmv_ddl.sql
-│ └── daily_gmv_query.sql
+│   ├── daily_gmv_ddl.sql
+│   └── daily_gmv_query.sql
 ├── ARCHITECTURE.md
 ├── README.md
 ├── requirements.txt
 └── .gitignore
-
+```
 ---
 
 ## Data Understanding
