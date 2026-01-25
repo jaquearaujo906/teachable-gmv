@@ -1,0 +1,50 @@
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# =====================
+# Spark / Hadoop temp
+# =====================
+spark-warehouse/
+derby.log
+metastore_db/
+*.log
+
+# =====================
+# OS
+# =====================
+.DS_Store
+Thumbs.db
+
+# =====================
+# IDEs
+# =====================
+.vscode/
+.idea/
+*.iml
+
+# =====================
+# Data Lake (generated data)
+# =====================
+data_lake/
+outputs/
+
+# =====================
+# Large files
+# =====================
+*.parquet
+*.csv
+
+# =====================
+# Secrets
+# =====================
+.env
+*.pem
+*.key
