@@ -5,15 +5,15 @@ from datetime import datetime, timedelta, date
 
 from pyspark.sql import SparkSession, functions as F, Window
 
-
+# Funções auxiliares
 def parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
-
+# Formata date para string ISO YYYY-MM-DD
 def iso(d: date) -> str:
     return d.strftime("%Y-%m-%d")
 
-
+# Configura Spark Session
 def make_spark() -> SparkSession:
     os.environ["PYSPARK_PYTHON"] = sys.executable
     os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
@@ -41,7 +41,7 @@ def make_spark() -> SparkSession:
         .getOrCreate()
     )
 
-    # overwrite só das partições presentes no DF
+    # overwrite só das partições presentes no DF (esquema append-only gold)
     spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
     return spark
 
@@ -52,7 +52,9 @@ def main():
     parser.add_argument("--silver-base", default="data_lake/silver")
     parser.add_argument("--gold-base", default="data_lake/gold")
 
-    # janela
+    # Define parâmetros da janela de processamento
+    # Calcula a janela de datas a ser processada com base nos parâmetros
+    # informados se nao existir utiliza a partir do intervalo disponível nos dados.
     parser.add_argument("--days-back", type=int, default=30, help="Reprocess last N days ending yesterday")
     parser.add_argument("--start-date", default=None, help="YYYY-MM-DD (optional)")
     parser.add_argument("--end-date", default=None, help="YYYY-MM-DD (optional, inclusive)")
@@ -76,6 +78,7 @@ def main():
     # -----------------------------
     # 2) Type conversions
     # -----------------------------
+    # convertendo tipos conforme schema esperado
     purchase_df = purchase_df.withColumn("purchase_id", F.col("purchase_id").cast("string"))
     product_item_df = product_item_df.withColumn("purchase_id", F.col("purchase_id").cast("string"))
     extra_df = extra_df.withColumn("purchase_id", F.col("purchase_id").cast("string"))
@@ -95,10 +98,10 @@ def main():
     product_item_df = product_item_df.withColumn("item_quantity", F.col("item_quantity").cast("int"))
 
     # -----------------------------
-    # 3) Define window
+    # 3) Define janela de processamento do pipeline.
     # -----------------------------
-    # Se usuário passar start/end, usa.
-    # Se não passar, usa min/max do dataset (melhor para mock com datas antigas).
+    # se informar uma data inicial ou final, o pipeline respeita esses parâmetros
+    # se nao ele utiliza automaticamente o intervalo de datas disponível nos dados
     if args.start_date or args.end_date:
         today = date.today()
         default_end = today - timedelta(days=1)
@@ -134,6 +137,7 @@ def main():
     start_lit = F.lit(iso(start_d)).cast("date")
     end_lit = F.lit(iso(end_d)).cast("date")
 
+    # Filtra datasets pela janela
     purchase_df_w = purchase_df.filter((F.col("transaction_date") >= start_lit) & (F.col("transaction_date") <= end_lit))
     product_item_df_w = product_item_df.filter((F.col("transaction_date") >= start_lit) & (F.col("transaction_date") <= end_lit))
     extra_df_w = extra_df.filter((F.col("transaction_date") >= start_lit) & (F.col("transaction_date") <= end_lit))
@@ -181,6 +185,7 @@ def main():
     # -----------------------------
     # 5) Avoid ambiguous columns
     # -----------------------------
+    # renomeia transaction_date para evitar ambiguidade no join
     purchase_silver = purchase_silver.withColumnRenamed("transaction_date", "purchase_transaction_date")
     product_item_silver = product_item_silver.withColumnRenamed("transaction_date", "item_transaction_date")
     extra_silver = extra_silver.withColumnRenamed("transaction_date", "extra_transaction_date")
@@ -188,12 +193,14 @@ def main():
     # -----------------------------
     # 6) Join + business rule
     # -----------------------------
+    #  left preserva compras mesmo se algo estiver atrasado
     df_joined = (
         purchase_silver
         .join(product_item_silver, on="purchase_id", how="left")
         .join(extra_silver, on="purchase_id", how="left")
     )
 
+    # regra: só considera compras pagas (com release_date preenchido)
     df_valid = df_joined.filter(F.col("release_date").isNotNull())
 
     # Se ninguém estiver pago na janela, encerra limpo
@@ -205,6 +212,7 @@ def main():
     # -----------------------------
     # 7) GMV
     # -----------------------------
+    # GMV = SUM(purchase_value * item_quantity) por dia e subsidiary
     df_valid = df_valid.withColumn("gmv_value", F.col("purchase_value") * F.col("item_quantity"))
 
     daily_gmv = (
@@ -217,13 +225,13 @@ def main():
     print("\n[INFO] Preview daily_gmv:")
     daily_gmv.show(200, truncate=False)
 
-    # -----------------------------
+    # ---------------------------------------------
     # 8) Gold write (append-only by day partitions)
-    # -----------------------------
+    # ---------------------------------------------
     (
         daily_gmv
         .write
-        .mode("overwrite")  # com dynamic partition overwrite, só substitui os dias presentes no DF
+        .mode("overwrite")  # com partition overwrite, só substitui os dias presentes no DF
         .partitionBy("transaction_date")
         .option("header", True)
         .csv(f"{GOLD_BASE}/daily_gmv")
