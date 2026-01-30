@@ -33,14 +33,14 @@ Thumbs.db
 # =====================
 # Data Lake (generated data)
 # =====================
-data_lake/
+# data_lake/
 
 
 # =====================
 # Large files
 # =====================
-*.parquet
-*.csv
+# *.parquet
+# *.csv
 
 # =====================
 # Secrets
