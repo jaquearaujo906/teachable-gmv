@@ -1,8 +1,19 @@
+# -----------------------------
+#  EN
+# -----------------------------
 # Generate synthetic data that mimics CDC (Change Data Capture) for 3 entities:
 # purchase: purchase lifecycle events (created, paid, reshipped/corrected)
 # product_item: items and financial values ​​associated with the purchase
 # Purchase_extra_info: dimensional attributes, such as subsidiary
 # The script saves this data as CSV in the bronze layer, simulating a data lake (S3 in production).
+# -----------------------------
+#  BR
+# -----------------------------
+# Gera dados sintéticos que simulam o CDC (Change Data Capture) para 3 entidades:
+# compra: eventos do ciclo de vida da compra (criada, paga, reenviada/corrigida)
+# item_produto: itens e valores financeiros associados à compra
+# informações_extras_da_compra: atributos dimensionais, como subsidiária
+# O script salva esses dados como CSV na camada bronze, simulando um data lake (S3 em produção).
 
 import os
 import pandas as pd

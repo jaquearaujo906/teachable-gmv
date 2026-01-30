@@ -147,6 +147,7 @@ def main():
     # -----------------------------
     # 4) CDC -> Silver
     # -----------------------------
+    # para cada purchase_id, pega o evento mais recente (maior transaction_datetime)
     w_purchase = Window.partitionBy("purchase_id").orderBy(F.col("transaction_datetime").desc())
     purchase_silver = (
         purchase_df_w
